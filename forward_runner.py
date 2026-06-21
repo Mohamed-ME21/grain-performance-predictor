@@ -157,9 +157,9 @@ def _fwd_road_tube(vals):
     bt = max(scalars[2], 0.01)
     ts = np.linspace(0, bt, len(thrust))
     savgol = _get_savgol()
-    if len(thrust) > 15:
-        thrust   = np.clip(savgol(thrust, 15, 3), 0, None)
-        pressure = np.clip(savgol(pressure, 15, 3), 0, None)
+    if len(thrust) > 3:
+        thrust   = np.clip(savgol(thrust, 3, 2), 0, None)
+        pressure = np.clip(savgol(pressure, 3, 2), 0, None)
     return {
         "isp": scalars[0], "total_impulse": _trapezoid(thrust, ts),
         "burn_time": bt, "max_thrust": scalars[3],
