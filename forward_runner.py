@@ -102,9 +102,10 @@ def _fwd_finocyl(vals):
     sc_vals = np.expm1(sc_log)[0]
     bt = max(float(sc_vals[0]), 0.1)
     isp = max(float(sc_vals[1]), 1.0)
+    total_impulse = max(float(sc_vals[2]), 1.0)
     ts = np.linspace(0, bt, N_POINTS)
     return {
-        "isp": isp, "total_impulse": _trapezoid(thrust, ts),
+        "isp": isp, "total_impulse":total_impulse,
         "burn_time": bt, "max_thrust": float(np.max(thrust)),
         "peak_pressure": max(float(sc_vals[4]), 0.01) if len(sc_vals) > 4 else float(np.max(pressure)),
         "thrust_curve": thrust, "pressure_curve": pressure, "time_steps": ts,
