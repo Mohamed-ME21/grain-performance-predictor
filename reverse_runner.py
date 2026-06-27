@@ -19,6 +19,21 @@ REVERSE_DIM_LABELS = {
     "X":             ["Length", "Diameter", "Slot Length", "Slot Width", "Throat Diameter", "Exit Diameter"],
 }
 
+# Default Isp fallback values (s) used by each grain's reverse model.
+# Exposed so the UI can display the exact value in the tooltip/label.
+# Models that do not use Isp as a scalar feature have None.
+REVERSE_DEFAULT_ISP = {
+    "Bates":         170.1542764,
+    "C":             None,           # C model derives all info from curves
+    "Conical":       170.0,
+    "D":             168.7509,
+    "Finocyl":       None,           # Finocyl uses log-scaled curve features only
+    "Moon":          178.0197433,
+    "Road and Tube": None,           # Road and Tube concatenates raw curves only
+    "Star":          170.0,
+    "X":             None,           # X model concatenates raw curves only
+}
+
 def _rev_bates(t, thrust, pressure, isp_val):
     tf = _get_tf()
     a = load_reverse_assets("Bates")
@@ -83,7 +98,7 @@ def _rev_conical(t, thrust, pressure, isp_val):
     burn_time     = t[-1] 
     max_thrust    = float(np.max(thrust))
     total_impulse = float(_trapezoid(thrust, t))
-    isp = 170.0
+    isp = isp_val if isp_val else 170.0
     scalars = np.array([[isp, total_impulse, burn_time, max_thrust]])
     
     t_scaled = (t_100 / xt_max).reshape(1, -1)

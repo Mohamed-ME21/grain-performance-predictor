@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import io
 import warnings
+import matplotlib.pyplot as plt
 from pathlib import Path
 from collections import OrderedDict
 import plotly.graph_objects as go
@@ -10,7 +11,7 @@ from plotly.subplots import make_subplots
 
 from utils import smooth_and_interpolate, parse_uploaded_file
 from forward_runner import predict_forward
-from reverse_runner import predict_reverse, REVERSE_DIM_LABELS
+from reverse_runner import predict_reverse, REVERSE_DIM_LABELS, REVERSE_DEFAULT_ISP
 
 warnings.filterwarnings("ignore")
 
@@ -812,11 +813,17 @@ if is_forward:
 
 # --- REVERSE MODE UI ---
 else:
-    st.markdown("""
+    # Determine whether the selected grain uses Isp as a model feature
+    grain_default_isp = REVERSE_DEFAULT_ISP.get(selected_grain)
+    grain_uses_isp    = grain_default_isp is not None
+
+    st.markdown(f"""
     <div class='info-box'>
         Upload an Excel (.xlsx) or CSV file with performance data.<br>
         Required columns: <b>Time (s)</b>, <b>Thrust (N)</b>, <b>Pressure (MPa)</b>.<br>
-        Optional column: <b>ISP (s)</b>.
+        Optional column: <b>ISP (s)</b> — or enter it manually below.<br>
+        {"<b>Isp override</b> is available for this grain type." if grain_uses_isp else
+         "<b>Note:</b> The <b>{selected_grain}</b> model derives all features from curves — Isp is not used."}
     </div>
     """, unsafe_allow_html=True)
 
@@ -849,7 +856,71 @@ else:
 
     st.markdown("<hr style='border-color:#27272a; margin: 2rem 0;'>", unsafe_allow_html=True)
 
-    # File uploader
+    # ── Manual Isp input (only shown for grains that actually use Isp) ──────────
+    user_isp_override = None   # None → use file value or default fallback
+
+    if grain_uses_isp:
+        st.markdown("<div class='input-panel'>", unsafe_allow_html=True)
+        st.markdown("<div class='panel-title'>⚙️ Isp Override (Optional)</div>", unsafe_allow_html=True)
+
+        isp_col, info_col = st.columns([1, 2])
+        with isp_col:
+            isp_text = st.text_input(
+                "Isp (s)",
+                value="",
+                placeholder=f"e.g. {grain_default_isp:.4f}",
+                key=f"manual_isp_{selected_grain}",
+                help=(
+                    f"Leave empty to use the default Isp = {grain_default_isp:.4f} s. "
+                    f"If your uploaded file contains an ISP column, the file value is used "
+                    f"unless you type a value here. "
+                    f"Must be a positive number (> 0)."
+                ),
+            )
+        with info_col:
+            st.markdown(f"""
+            <div style='background:rgba(59,130,246,0.05); border:1px solid rgba(59,130,246,0.2);
+                        border-radius:10px; padding:0.9rem 1.2rem; margin-top:1.6rem;'>
+                <span style='color:#71717a; font-size:0.82rem; font-weight:600;
+                             text-transform:uppercase; letter-spacing:0.5px;'>Isp info</span><br>
+                <span style='color:#a1a1aa; font-size:0.88rem;'>
+                    Default Isp for <b style='color:#f4f4f5;'>{selected_grain}</b>:
+                    <span style='font-family:JetBrains Mono,monospace; color:#3b82f6; font-weight:700;'>
+                        {grain_default_isp:.4f} s
+                    </span><br>
+                    Leave the field empty to use this default.<br>
+                    A value typed here takes priority over the uploaded file's ISP column.
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # ── Validation ────────────────────────────────────────────────────────────
+        isp_text_stripped = isp_text.strip()
+        if isp_text_stripped != "":
+            try:
+                parsed_isp = float(isp_text_stripped)
+                if parsed_isp <= 0:
+                    st.error(
+                        f"❌ **Invalid Isp:** value must be a positive number (got {parsed_isp:.4f}). "
+                        f"Falling back to the default Isp = **{grain_default_isp:.4f} s**."
+                    )
+                    # user_isp_override stays None → fallback path
+                else:
+                    user_isp_override = parsed_isp
+                    st.success(
+                        f"✅ Using your Isp value: **{user_isp_override:.4f} s** "
+                        f"(default was {grain_default_isp:.4f} s)"
+                    )
+            except ValueError:
+                st.error(
+                    f"❌ **Invalid Isp:** '{isp_text_stripped}' is not a valid number. "
+                    f"Falling back to the default Isp = **{grain_default_isp:.4f} s**."
+                )
+                # user_isp_override stays None → fallback path
+
+    # ── File uploader ─────────────────────────────────────────────────────────────
     st.markdown("<div class='input-panel'>", unsafe_allow_html=True)
     st.markdown("<div class='panel-title'>Upload Performance Data</div>", unsafe_allow_html=True)
 
@@ -882,10 +953,42 @@ else:
     if run_rev and df_input is not None:
         with st.spinner("Processing data and running inverse prediction..."):
             try:
-                t, thrust, pressure, isp_val = parse_uploaded_file(df_input)
+                t, thrust, pressure, isp_from_file = parse_uploaded_file(df_input)
+
+                # ── Isp resolution priority:
+                #    1. Manual user input (user_isp_override) — highest priority
+                #    2. Value from uploaded file (isp_from_file)
+                #    3. Hardcoded default inside each grain function — lowest priority
+                #
+                # We pass isp_val = user_isp_override ?? isp_from_file ?? None
+                # (None triggers the per-grain default inside reverse_runner.py)
+                if user_isp_override is not None:
+                    isp_val = user_isp_override
+                    isp_source = f"manual input ({isp_val:.4f} s)"
+                elif isp_from_file is not None:
+                    isp_val = isp_from_file
+                    isp_source = f"uploaded file ({isp_val:.4f} s)"
+                else:
+                    isp_val = None          # each grain function applies its own default
+                    isp_source = f"built-in default ({grain_default_isp} s)" if grain_uses_isp else "N/A (not used by this model)"
+
                 result_dims = predict_reverse(selected_grain, t, thrust, pressure, isp_val)
 
                 st.markdown("<hr style='border-color:#27272a; margin: 2rem 0;'>", unsafe_allow_html=True)
+
+                # Show which Isp was actually used
+                if grain_uses_isp:
+                    st.markdown(f"""
+                    <div style='background:rgba(139,92,246,0.05); border:1px solid rgba(139,92,246,0.2);
+                                border-radius:8px; padding:0.7rem 1.2rem; margin-bottom:1.2rem;
+                                font-size:0.88rem; color:#a1a1aa;'>
+                        🔬 <b style='color:#f4f4f5;'>Isp used in this prediction:</b>
+                        <span style='font-family:JetBrains Mono,monospace; color:#a78bfa; font-weight:700;'>
+                            {isp_source}
+                        </span>
+                    </div>
+                    """, unsafe_allow_html=True)
+
                 st.markdown(f"""
                 <div class='panel-title' style='margin-bottom:1rem;'>
                     Predicted {selected_grain} Grain Dimensions (cm)
@@ -927,8 +1030,34 @@ else:
                 st.markdown("<hr style='border-color:#27272a; margin: 2rem 0;'>", unsafe_allow_html=True)
                 _, t_100, p_100 = smooth_and_interpolate(t, thrust, pressure, 100)
                 x_new = np.linspace(t[0], t[-1], 100)
-                fig = create_performance_plotly(x_new, t_100, p_100, title_prefix="Input (Processed)")
-                st.plotly_chart(fig, use_container_width=True)
+                
+                fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 4))
+                fig.patch.set_facecolor('white')
+                ax1.set_facecolor('white')
+                ax2.set_facecolor('white')
+                
+                # Plot Thrust
+                ax1.plot(t, thrust, 'r.', label='Original Thrust', alpha=0.4, markersize=8)
+                ax1.plot(x_new, t_100, 'b-', label='Processed Thrust (100 points)', linewidth=2)
+                ax1.set_title("Thrust Curve", fontsize=12, fontweight='bold', color='black')
+                ax1.set_xlabel("Time (s)", fontsize=10, color='black')
+                ax1.set_ylabel("Thrust (N)", fontsize=10, color='black')
+                ax1.grid(True, linestyle='--', alpha=0.6, color='lightgray')
+                ax1.tick_params(colors='black', labelsize=9)
+                ax1.legend(loc='upper left', facecolor='white', edgecolor='lightgray', labelcolor='black')
+                
+                # Plot Pressure
+                ax2.plot(t, pressure, 'g.', label='Original Pressure', alpha=0.4, markersize=8)
+                ax2.plot(x_new, p_100, 'm-', label='Processed Pressure (100 points)', linewidth=2)
+                ax2.set_title("Pressure Curve", fontsize=12, fontweight='bold', color='black')
+                ax2.set_xlabel("Time (s)", fontsize=10, color='black')
+                ax2.set_ylabel("Pressure (MPa)", fontsize=10, color='black')
+                ax2.grid(True, linestyle='--', alpha=0.6, color='lightgray')
+                ax2.tick_params(colors='black', labelsize=9)
+                ax2.legend(loc='upper left', facecolor='white', edgecolor='lightgray', labelcolor='black')
+                
+                plt.tight_layout()
+                st.pyplot(fig)
 
             except Exception as e:
                 st.error(f"Prediction failed: {e}")
