@@ -1,6 +1,5 @@
 import numpy as np
 from collections import OrderedDict
-from scipy.integrate import trapezoid
 from utils import (
     load_reverse_assets, _get_tf, _get_savgol, _get_interp1d,
     _trapezoid, smooth_and_interpolate,
@@ -84,7 +83,6 @@ def _rev_c(t, thrust, pressure, isp_val):
 
 def _rev_conical(t, thrust, pressure, isp_val):
     a = load_reverse_assets("Conical")
-    savgol = _get_savgol()
     interp1d = _get_interp1d()
     # if len(thrust) > 7:
     #     thrust = savgol(thrust, 7, 3)
@@ -158,7 +156,6 @@ def _rev_finocyl(t, thrust, pressure, isp_val):
 
 def _rev_moon(t, thrust, pressure, isp_val):
     a = load_reverse_assets("Moon")
-    savgol = _get_savgol()
     interp1d = _get_interp1d()
     # if len(thrust) > 7:
     #     thrust = savgol(thrust, 7, 3)

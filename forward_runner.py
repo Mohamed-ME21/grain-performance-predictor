@@ -18,6 +18,7 @@ def _fwd_bates(vals):
     return {
         "isp": scalars[0], "total_impulse": _trapezoid(thrust, ts),
         "burn_time": bt, "max_thrust": scalars[3],
+        "peak_pressure": float(np.max(pressure)),
         "thrust_curve": thrust, "pressure_curve": pressure, "time_steps": ts,
     }
 
@@ -37,6 +38,7 @@ def _fwd_c(vals):
     return {
         "isp": isp, "total_impulse": _trapezoid(thrust, ts),
         "burn_time": bt, "max_thrust": float(np.max(thrust)),
+        "peak_pressure": float(np.max(pressure)),
         "thrust_curve": thrust, "pressure_curve": pressure, "time_steps": ts,
     }
 
@@ -66,6 +68,7 @@ def _fwd_conical(vals):
     return {
         "isp": isp, "total_impulse": _trapezoid(thrust, ts),
         "burn_time": bt, "max_thrust": float(np.max(thrust)),
+        "peak_pressure": float(np.max(pressure)),
         "thrust_curve": thrust, "pressure_curve": pressure, "time_steps": ts,
     }
 
@@ -82,6 +85,7 @@ def _fwd_d(vals):
     return {
         "isp": scalars[0], "total_impulse": _trapezoid(thrust, ts),
         "burn_time": bt, "max_thrust": scalars[3],
+        "peak_pressure": float(np.max(pressure)),
         "thrust_curve": thrust, "pressure_curve": pressure, "time_steps": ts,
     }
 
@@ -136,6 +140,7 @@ def _fwd_moon(vals):
     return {
         "isp": isp, "total_impulse": _trapezoid(thrust, ts),
         "burn_time": bt, "max_thrust": float(np.max(thrust)),
+        "peak_pressure": float(np.max(pressure)),
         "thrust_curve": thrust, "pressure_curve": pressure, "time_steps": ts,
     }
 
@@ -185,6 +190,7 @@ def _fwd_star(vals):
     return {
         "isp": scalars[0], "total_impulse": _trapezoid(thrust, ts),
         "burn_time": bt, "max_thrust": scalars[3],
+        "peak_pressure": float(np.max(pressure)),
         "thrust_curve": thrust, "pressure_curve": pressure, "time_steps": ts,
     }
 

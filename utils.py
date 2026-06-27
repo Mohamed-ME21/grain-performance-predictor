@@ -246,6 +246,11 @@ def parse_uploaded_file(df):
     df = df.sort_values(col_map["time"]).dropna(
         subset=[col_map["time"], col_map["thrust"], col_map["pressure"]]
     )
+    if df.empty:
+        raise ValueError(
+            "The uploaded file contains no valid data rows after removing NaN values. "
+            "Please check that Time, Thrust, and Pressure columns contain numeric values."
+        )
     t = df[col_map["time"]].values.astype(float)
     thrust = df[col_map["thrust"]].values.astype(float)
     pressure = df[col_map["pressure"]].values.astype(float)
