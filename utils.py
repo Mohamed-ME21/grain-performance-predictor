@@ -254,7 +254,16 @@ def parse_uploaded_file(df):
     t = df[col_map["time"]].values.astype(float)
     thrust = df[col_map["thrust"]].values.astype(float)
     pressure = df[col_map["pressure"]].values.astype(float)
-    isp_val = float(df[col_map["isp"]].iloc[0]) if "isp" in col_map else None
+    
+    isp_val = None
+    if "isp" in col_map:
+        try:
+            val = df[col_map["isp"]].iloc[0]
+            if pd.notna(val):
+                isp_val = float(val)
+        except Exception:
+            pass
+            
     return t, thrust, pressure, isp_val
 
 def smooth_and_interpolate(t, thrust, pressure, n_points=100):
