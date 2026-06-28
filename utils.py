@@ -211,7 +211,7 @@ def load_reverse_assets(grain_type):
 
     elif grain_type == "X":
         p = d / "X Models"
-        assets["model"] = tf.keras.models.load_model(str(p / "best_X_model_fixed.h5"), compile=False)
+        assets["model"] = tf.keras.models.load_model(str(p / "best_X_model_fixed.keras"), compile=False)
         assets["s_X"]   = joblib.load(str(p / "scaler_X_inverse.pkl"))
         assets["s_yt"]  = joblib.load(str(p / "scaler_y_inverse.pkl"))
 
