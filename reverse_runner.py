@@ -152,6 +152,7 @@ def _rev_finocyl(t, thrust, pressure, isp_val):
         verbose=0,
     )
     dims = a["scaler_Y"].inverse_transform(pred_s)[0]
+    dims = np.maximum(dims, 0.0)   # clamp: negative dimensions are physically impossible
     return dims
 
 def _rev_moon(t, thrust, pressure, isp_val):
@@ -195,6 +196,7 @@ def _rev_road_tube(t, thrust, pressure, isp_val):
     X_scaled = a["scaler_X"].transform(X_new)
     y_pred_scaled = a["model"].predict(X_scaled, verbose=0)
     dims = a["scaler_y"].inverse_transform(y_pred_scaled)[0]
+    dims = np.maximum(dims, 0.0)   # clamp: negative dimensions are physically impossible
     return dims
 
 def _rev_star(t, thrust, pressure, isp_val):
@@ -229,7 +231,7 @@ def _rev_x(t, thrust, pressure, isp_val):
     X_scaled = a["s_X"].transform(X_input)
     y_pred_scaled = a["model"].predict(X_scaled, verbose=0)
     dims = a["s_yt"].inverse_transform(y_pred_scaled)[0]
-    
+    dims = np.maximum(dims, 0.0)   # clamp: negative dimensions are physically impossible
     return dims
 
 REV_DISPATCH = {
