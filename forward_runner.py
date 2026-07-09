@@ -11,16 +11,20 @@ def _fwd_bates(vals):
     scalars  = a["s_ys"].inverse_transform(preds[2])[0]
     bt = max(scalars[2], 0.01)
     ts = np.linspace(0, bt, len(thrust))
+    # Calculate impulse from raw (unsmoothed) curve — matches the reference code
+    # which uses: calculated_impulse = np.trapz(thrust_pred[0], time_steps)
+    total_impulse = _trapezoid(thrust, ts)
     savgol = _get_savgol()
     if len(thrust) > 15:
         thrust   = savgol(thrust, 15, 3)
         pressure = savgol(pressure, 15, 3)
     return {
-        "isp": scalars[0], "total_impulse": _trapezoid(thrust, ts),
-        "burn_time": bt, "max_thrust": scalars[3],
+        "isp": scalars[0], "total_impulse": total_impulse,
+        "burn_time": bt, "max_thrust": float(np.max(thrust)),
         "peak_pressure": float(np.max(pressure)),
         "thrust_curve": thrust, "pressure_curve": pressure, "time_steps": ts,
     }
+
 
 def _fwd_c(vals):
     a = load_forward_assets("C")

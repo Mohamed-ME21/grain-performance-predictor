@@ -184,9 +184,10 @@ def load_reverse_assets(grain_type):
 
     elif grain_type == "Finocyl":
         p = d / "Finocyl Models"
-        assets["model"]    = tf.keras.models.load_model(str(p / "Finocyl_Inverse_Model_v2.keras"), compile=False)
-        assets["scaler_Y"] = joblib.load(str(p / "finocyl_inv_scaler_Y_v2.pkl"))
-        assets["scaler_S"] = joblib.load(str(p / "finocyl_inv_scaler_S_v2.pkl"))
+        assets["model"]    = tf.keras.models.load_model(str(p / "finocyl_Reverse_Model.keras"), compile=False)
+        assets["max_vals"] = joblib.load(str(p / "finocyl_rev_max_values.pkl"))
+        assets["s_xs"] = joblib.load(str(p / "finocyl_rev_scaler_scalars.pkl"))
+        assets["s_Y"]      = joblib.load(str(p / "finocyl_rev_scaler_dims.pkl"))
 
     elif grain_type == "Moon":
         p = d / "Moon Models"

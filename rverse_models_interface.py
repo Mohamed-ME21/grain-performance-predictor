@@ -1431,118 +1431,121 @@ result = predict_conical_dimensions_from_file_v2("M:\\Graduation Project\\Team B
 # ============================================================
 # PREDICTION FUNCTION v2
 # ============================================================
-INPUT_COLS = ['Diameter', 'Length', 'Core_Diameter', 'Number_Of_Fins',
-            'Fin_Length', 'Fin_Width', 'Throat_Diameter', 'Exit_Diameter']
-inv_model_v2 = tf.keras.models.load_model(
-    "M:\\Graduation Project\\Team B\\Code_project\\test models\\Reverse Models\\Finocyl Models\\finocyl_inv_best_v2.keras",
+from altair import Interpolate
+import pandas as pd
+import numpy as np
+import joblib
+import tensorflow as tf
+import os
+from scipy.signal import savgol_filter
+from scipy.interpolate import interp1d
+from scipy.integrate import trapezoid
+
+MODEL_PATH = "M:\\Graduation Project\\code\\finocyl_Reverse_Model.keras"
+finocyl_reverse = tf.keras.models.load_model(
+    MODEL_PATH,
     compile=False
 )
-inv_scaler_Y = joblib.load("M:\\Graduation Project\\Team B\\Code_project\\test models\\Reverse Models\\Finocyl Models\\finocyl_inv_scaler_Y_v2.pkl")
-inv_scaler_S = joblib.load("M:\\Graduation Project\\Team B\\Code_project\\test models\\Reverse Models\\Finocyl Models\\finocyl_inv_scaler_S_v2.pkl")
-def predict_geometry_v2(file_path,
-                        model=inv_model_v2,
-                        scaler_Y=inv_scaler_Y,
-                        scaler_S=inv_scaler_S,
-                        num_points=128,
-                        label="Predicted Geometry"):
-    """
-    يأخذ ملف Excel/CSV يحتوي على [Time (s), Pressure (MPa), Thrust (N)]
-    ويُرجع الأبعاد الهندسية الـ 8 المتوقعة.
 
-    الفرق عن الإصدار القديم: يستخدم أيضًا الـ scalar features
-    (Max Thrust, Burn Time, إلخ) لتحسين الدقة بشكل جذري.
-    """
-    if file_path.endswith(('.xlsx', '.xls')):
-        raw = pd.read_excel(file_path)
+def predict_finocyl_dimensions_from_file_v2(file_path):
+    print(f"\n🔍 Reading file: {file_path}")
+
+    try:
+        max_vals = joblib.load('M:\\Graduation Project\\code\\finocyl_rev_max_values.pkl')
+        s_xs     = joblib.load('M:\\Graduation Project\\code\\finocyl_rev_scaler_scalars.pkl')
+        s_Y      = joblib.load('M:\\Graduation Project\code\\finocyl_rev_scaler_dims.pkl')
+        xt_max   = max_vals['xt_max']
+        xp_max   = max_vals['xp_max']
+    except Exception as e:
+        print(f"❌ Error loading scalers: {e}")
+        return
+
+    # قراءة الملف
+    if file_path.endswith('.xlsx') or file_path.endswith('.xls'):
+        df = pd.read_excel(file_path)
     else:
-        raw = pd.read_csv(file_path, on_bad_lines='skip')
-    raw.columns = raw.columns.str.strip()
+        df = pd.read_csv(file_path, sep=None, engine='python',
+                         encoding='latin1', on_bad_lines='skip')
 
-    for col in ['Time (s)', 'Pressure (MPa)', 'Thrust (N)']:
-        if col not in raw.columns:
-            raise ValueError(f"Missing column: '{col}'")
+    df.columns = df.columns.str.strip()
 
-    raw    = raw.dropna().sort_values('Time (s)')
-    t      = raw['Time (s)'].values.astype(float)
-    thrust = np.clip(raw['Thrust (N)'].values.astype(float), 0, None)
-    press  = np.clip(raw['Pressure (MPa)'].values.astype(float), 0, None)
-    def extract_scalar_features(t, thrust, press):
-        """
-        استخراج 6 features مطلقة من كل curve.
-        هذه الـ features تحمل المعلومات التي تُفقدها الـ normalization.
-        """
-        max_thrust    = np.max(thrust)
-        max_press     = np.max(press)
-        burn_time     = t[-1]                     # المدة الفعلية بالثواني
-        avg_thrust    = np.trapz(thrust, t) / (burn_time + 1e-8)
-        total_impulse = np.trapz(thrust, t)
+    # التعرف على الأعمدة
+    col_map = {}
+    for col in df.columns:
+        c = col.lower().replace(' ', '').replace('_', '').replace('(', '').replace(')', '')
+        if 'time' in c:     col_map['time']     = col
+        elif 'thrust' in c: col_map['thrust']   = col
+        elif 'pressure' in c: col_map['pressure'] = col
 
-        # Rise time: الوقت للوصول لـ 90% من max thrust
-        idx_90 = np.argmax(thrust >= 0.9 * max_thrust)
-        rise_time = t[idx_90] / (burn_time + 1e-8) if max_thrust > 0 else 0.5
+    print(f"📋 Detected columns: {col_map}")
 
-        return np.array([
-            np.log1p(max_thrust),      # log scale لتقليل skewness
-            np.log1p(max_press),
-            np.log1p(burn_time),
-            np.log1p(avg_thrust),
-            np.log1p(total_impulse),
-            rise_time
-        ], dtype=np.float32)
-    # Scalar features (قبل normalization)
-    scalars = extract_scalar_features(t, thrust, press)
-    scalars_s = scaler_S.transform(scalars.reshape(1, -1))
+    required = ['time', 'thrust', 'pressure']
+    for r in required:
+        if r not in col_map:
+            print(f"❌ Missing required column: {r}")
+            return
 
-    # Curve normalization
-    t_norm = (t - t[0]) / (t[-1] - t[0])
-    t_new  = np.linspace(0, 1, num_points)
-    thr_r  = np.clip(interp1d(t_norm, thrust, kind='linear',
-                               fill_value='extrapolate')(t_new), 0, None)
-    prs_r  = np.clip(interp1d(t_norm, press,  kind='linear',
-                               fill_value='extrapolate')(t_new), 0, None)
+    df = df.sort_values(col_map['time']).dropna(
+        subset=[col_map['time'], col_map['thrust'], col_map['pressure']]
+    )
 
-    thr_r /= (np.max(thr_r) + 1e-8)
-    prs_r /= (np.max(prs_r) + 1e-8)
-    thr_r  = np.clip(savgol_filter(thr_r, 15, 3), 0, None)
-    prs_r  = np.clip(savgol_filter(prs_r, 15, 3), 0, None)
+    t        = df[col_map['time']].values.astype(float)
+    thrust   = df[col_map['thrust']].values.astype(float)
+    pressure = df[col_map['pressure']].values.astype(float)
 
-    pred_s = model.predict(
-        [thr_r.reshape(1, num_points),
-         prs_r.reshape(1, num_points),
-         scalars_s], verbose=0)
-    pred   = scaler_Y.inverse_transform(pred_s)[0]
-    result = dict(zip(INPUT_COLS, pred))
+    #Smoothing (نفس التدريب بالظبط)
+    if len(thrust) > 7:
+        thrust   = savgol_filter(thrust,   window_length=7, polyorder=3)
+        pressure = savgol_filter(pressure, window_length=7, polyorder=3)
+    
+    #Interpolate لـ 100 نقطة (نفس التدريب)
+    x_new = np.linspace(t[0], t[-1], 100)
+    t_100 = interp1d(t, thrust,   kind='linear', fill_value='extrapolate')(x_new)
+    p_100 = interp1d(t, pressure, kind='linear', fill_value='extrapolate')(x_new)
 
-    print("\n" + "="*52)
-    print(f"  {label}")
-    print("="*52)
-    units = ['cm','cm','cm','—','cm','cm','cm','cm']
-    for (k, v), u in zip(result.items(), units):
-        print(f"  {k:<22} : {v:>8.3f}  {u}")
-    print("="*52)
-    print(f"  Burn Time   : {t[-1]:.3f} s")
-    print(f"  Max Thrust  : {np.max(thrust):.2f} N")
-    print(f"  Max Pressure: {np.max(press):.2f} MPa")
-    print(f"  Total Impulse: {np.trapz(thrust, t):.1f} Ns")
-    print("="*52)
+    # ============================================================
+    # حساب الـ Scalars بنفس طريقة التدريب بالظبط
+    # ============================================================
+    burn_time    = t[-1]                          # نفس t[-1] في التدريب
+    max_thrust   = np.max(thrust)                 # نفس np.max(thrust)
+    total_impulse = trapezoid(thrust, t)          # نفس trapezoid في التدريب ✅
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 4))
-    axes[0].plot(t, thrust, color='red',  lw=2)
-    axes[0].set_title('Input: Thrust Curve', fontweight='bold')
-    axes[0].set_xlabel('Time (s)'); axes[0].set_ylabel('Thrust (N)')
-    axes[0].grid(True, alpha=0.3)
-    axes[1].plot(t, press, color='blue', lw=2)
-    axes[1].set_title('Input: Pressure Curve', fontweight='bold')
-    axes[1].set_xlabel('Time (s)'); axes[1].set_ylabel('Pressure (MPa)')
-    axes[1].grid(True, alpha=0.3)
-    plt.suptitle(f'{label} — Input Curves', fontsize=13, fontweight='bold')
-    plt.tight_layout()
-    plt.savefig(f'{label.replace(" ","_")}_prediction.png', dpi=150, bbox_inches='tight')
-    plt.show()
-
-    return result
+    isp = 174.8347
 
 
-# ← ضع مسار ملف الـ CSV/Excel هنا
-result1 = predict_geometry_v2("M:\\Graduation Project\\Team B\\Code_project\\test models\\data\\Finocyl_2.0.xlsx")
 
+
+
+    print(f"📊 Computed scalars:")
+    print(f"   ISP           = {isp:.2f} s")
+    print(f"   Total Impulse = {total_impulse:.2f} Ns")
+    print(f"   Burn Time     = {burn_time:.3f} s")
+    print(f"   Max Thrust    = {max_thrust:.2f} N")
+
+    scalars = np.array([[isp, total_impulse, burn_time, max_thrust]])
+
+    # Scaling (نفس التدريب)
+    t_scaled = (t_100 / xt_max).reshape(1, -1)
+    p_scaled = (p_100 / xp_max).reshape(1, -1)
+    s_scaled = s_xs.transform(scalars)
+
+    # التنبؤ
+    pred_scaled = finocyl_reverse.predict([t_scaled, p_scaled, s_scaled], verbose=0)
+    pred_dims   = s_Y.inverse_transform(pred_scaled)[0]
+    pred_dims   = np.maximum(pred_dims, 0.01)
+
+    DIM_LABELS = ['Diameter', 'Length', 'Core_Diameter', 'Number_Of_Fins',
+              'Fin_Length', 'Fin_Width', 'Throat_Diameter', 'Exit_Diameter']
+
+    print("\n" + "="*50)
+    print(f"{'Dimension':<25} | {'Predicted (cm)':<15} | {'Expected'}")
+    print("-" * 60)
+    
+    for label, val in zip(DIM_LABELS, pred_dims):
+        # err = abs(val - exp) / exp * 100
+        print(f"{label:<25} | {val:>10.4f} ")
+    print("="*50)
+
+    return dict(zip(DIM_LABELS, pred_dims))
+
+result = predict_finocyl_dimensions_from_file_v2("file_path_here.xlsx")  # Replace with actual file path

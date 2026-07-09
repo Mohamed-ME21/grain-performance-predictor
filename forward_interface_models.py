@@ -29,7 +29,7 @@ try:
     my_s_yp = joblib.load('M:\\Graduation Project\\Team B\\Code_project\\test models\\Forward Models\\Bates Models\\scaler_pressure.pkl')
     my_s_ys = joblib.load('M:\\Graduation Project\\Team B\\Code_project\\test models\\Forward Models\\Bates Models\\scaler_scalars.pkl')
 
-    print("✅ Model and Scalers loaded successfully!\n")
+    print("Model and Scalers loaded successfully! [OK]\n")
 except Exception as e:
     print(f" Error loading files: {e}")
     raise e
@@ -43,14 +43,14 @@ def get_user_input_and_predict_bates(model, s_X, s_yt, s_yp, s_ys):
     print("="*50)
     try:
         # 1. استلام المدخلات
-        l_val = float(input("Length: "))
-        d_val = float(input("Diameter: "))
-        c_d_val = float(input("Core_Diameter: "))
-        t_d_val = float(input("Throat_Diameter: "))
-        e_d_val = float(input("Exit_Diameter: "))
+        l_val   = float(input("Length: "))
+        o_d_val = float(input("Outer Diameter: "))
+        i_d_val = float(input("Inner Diameter (Core): "))
+        t_d_val = float(input("Throat Diameter: "))
+        e_d_val = float(input("Exit Diameter: "))
 
-        # Input arrangement (بنفس ترتيب التدريب)
-        user_inputs = np.array([[l_val, d_val, c_d_val, t_d_val, e_d_val]])
+        # Input arrangement (يجب أن يكون بنفس الترتيب الذي تم تدريب النموذج عليه)
+        user_inputs = np.array([[l_val, o_d_val, i_d_val, t_d_val, e_d_val]])
         user_inputs_scaled = s_X.transform(user_inputs)
 
         # 2. Prediction
@@ -68,18 +68,18 @@ def get_user_input_and_predict_bates(model, s_X, s_yt, s_yp, s_ys):
         # Calculating the Impulse mathematically
         calculated_impulse = np.trapz(thrust_pred[0], time_steps)
 
+        # تنعيم المنحنيات باستخدام savgol_filter
+        smoothed_pressure = savgol_filter(pressure_pred[0], window_length=15, polyorder=3)
+        smoothed_thrust = savgol_filter(thrust_pred[0], window_length=15, polyorder=3)
+
         print("\n" + "-"*40)
         print("--- Predicted Performance Results ---")
         print("-"*40)
         print(f"ISP: {scalars_pred[0][0]:.2f} s")
         print(f"Total Impulse (Calculated): {calculated_impulse:.2f} N.s")
         print(f"Burn Time: {burn_time:.2f} s")
-        print(f"Max Thrust: {scalars_pred[0][3]:.2f} N")
+        print(f"Max Thrust: {np.max(smoothed_thrust):.2f} N")
         print("-"*40 + "\n")
-
-        # تنعيم المنحنيات باستخدام savgol_filter
-        smoothed_pressure = savgol_filter(pressure_pred[0], window_length=15, polyorder=3)
-        smoothed_thrust = savgol_filter(thrust_pred[0], window_length=15, polyorder=3)
 
         # رسم النتائج
         plt.figure(figsize=(15, 5))

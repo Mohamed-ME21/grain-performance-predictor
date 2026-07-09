@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.signal import savgol_filter
 from collections import OrderedDict
 from utils import (
     load_reverse_assets, _get_tf, _get_savgol, _get_interp1d,
@@ -26,7 +27,7 @@ REVERSE_DEFAULT_ISP = {
     "C":             None,           # C model derives all info from curves
     "Conical":       170.0,
     "D":             168.7509,
-    "Finocyl":       None,           # Finocyl uses log-scaled curve features only
+    "Finocyl":       174.8347,
     "Moon":          178.0197433,
     "Road and Tube": None,           # Road and Tube concatenates raw curves only
     "Star":          170.0,
@@ -35,6 +36,9 @@ REVERSE_DEFAULT_ISP = {
 
 def _rev_bates(t, thrust, pressure, isp_val):
     tf = _get_tf()
+    # Fixed seed so MC-Dropout gives reproducible results across runs/machines
+    tf.random.set_seed(42)
+    np.random.seed(42)
     a = load_reverse_assets("Bates")
     _, t_100, p_100 = smooth_and_interpolate(t, thrust, pressure, 100)
     burn_time  = t[-1]
@@ -128,31 +132,29 @@ def _rev_d(t, thrust, pressure, isp_val):
 
 def _rev_finocyl(t, thrust, pressure, isp_val):
     a = load_reverse_assets("Finocyl")
-    savgol = _get_savgol()
     interp1d = _get_interp1d()
-    NUM_POINTS = 128
-    thrust  = np.clip(thrust, 0, None)
-    pressure = np.clip(pressure, 0, None)
+    if len(thrust) > 7:
+        thrust   = savgol_filter(thrust,   window_length=7, polyorder=3)
+        pressure = savgol_filter(pressure, window_length=7, polyorder=3)
+    x_new = np.linspace(t[0], t[-1], 100)
+    t_100 = interp1d(t, thrust, kind="linear", fill_value="extrapolate")(x_new)
+    p_100 = interp1d(t, pressure, kind="linear", fill_value="extrapolate")(x_new)
+    xt_max = a["max_vals"]["xt_max"]
+    xp_max = a["max_vals"]["xp_max"]
     
-    scalars = extract_scalar_features_finocyl(t, thrust, pressure)
-    scalars_s = a["scaler_S"].transform(scalars.reshape(1, -1))
+    burn_time     = t[-1] 
+    max_thrust    = float(np.max(thrust))
+    total_impulse = float(_trapezoid(thrust, t))
+    isp = isp_val if isp_val else 174.8347
+    scalars = np.array([[isp, total_impulse, burn_time, max_thrust]])
     
-    t_norm = (t - t[0]) / (t[-1] - t[0])
-    t_new = np.linspace(0, 1, NUM_POINTS)
-    thr_r = np.clip(interp1d(t_norm, thrust, kind="linear", fill_value="extrapolate")(t_new), 0, None)
-    prs_r = np.clip(interp1d(t_norm, pressure, kind="linear", fill_value="extrapolate")(t_new), 0, None)
+    t_scaled = (t_100 / xt_max).reshape(1, -1)
+    p_scaled = (p_100 / xp_max).reshape(1, -1)
+    s_scaled = a["s_xs"].transform(scalars)
     
-    thr_r /= (np.max(thr_r) + 1e-8)
-    prs_r /= (np.max(prs_r) + 1e-8)
-    thr_r = np.clip(savgol(thr_r, 15, 3), 0, None)
-    prs_r = np.clip(savgol(prs_r, 15, 3), 0, None)
-    
-    pred_s = a["model"].predict(
-        [thr_r.reshape(1, NUM_POINTS), prs_r.reshape(1, NUM_POINTS), scalars_s],
-        verbose=0,
-    )
-    dims = a["scaler_Y"].inverse_transform(pred_s)[0]
-    dims = np.maximum(dims, 0.0)   # clamp: negative dimensions are physically impossible
+    pred = a["model"].predict([t_scaled, p_scaled, s_scaled], verbose=0)
+    dims = a["s_Y"].inverse_transform(pred)[0]
+    dims = np.maximum(dims, 0.01)
     return dims
 
 def _rev_moon(t, thrust, pressure, isp_val):
