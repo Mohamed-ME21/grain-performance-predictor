@@ -198,9 +198,11 @@ def load_reverse_assets(grain_type):
 
     elif grain_type == "Road and Tube":
         p = d / "Road and Tube"
-        assets["model"]    = tf.keras.models.load_model(str(p / "inverse_rocket_model_fixed.keras"), compile=False)
-        assets["scaler_X"] = joblib.load(str(p / "scaler_X_inverse.pkl"))
-        assets["scaler_y"] = joblib.load(str(p / "scaler_y_inverse.pkl"))
+        assets["model"] = tf.keras.models.load_model(str(p / "rod_inverse_model.keras"), compile=False)
+        assets["s_X"]   = joblib.load(str(p / "rod_inv_scaler_dims.pkl"))
+        assets["s_yt"]  = joblib.load(str(p / "rod_inv_scaler_thrust.pkl"))
+        assets["s_yp"]  = joblib.load(str(p / "rod_inv_scaler_pressure.pkl"))
+        assets["s_ys"]  = joblib.load(str(p / "rod_inv_scaler_scalars.pkl"))
 
     elif grain_type == "Star":
         p = d / "Star Models"

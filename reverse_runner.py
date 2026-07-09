@@ -29,7 +29,7 @@ REVERSE_DEFAULT_ISP = {
     "D":             168.7509,
     "Finocyl":       174.8347,
     "Moon":          178.0197433,
-    "Road and Tube": None,           # Road and Tube concatenates raw curves only
+    "Road and Tube": 157.3015,
     "Star":          170.0,
     "X":             None,           # X model concatenates raw curves only
 }
@@ -184,21 +184,44 @@ def _rev_moon(t, thrust, pressure, isp_val):
     dims = np.maximum(dims, 0.01)
     return dims
 
+# EXIT_THROAT_RATIO used by the Road‑and‑Tube model to derive Exit from Throat
+_ROD_EXIT_THROAT_RATIO = 1.5
+
 def _rev_road_tube(t, thrust, pressure, isp_val):
     a = load_reverse_assets("Road and Tube")
-    savgol = _get_savgol()
+    savgol   = _get_savgol()
     interp1d = _get_interp1d()
     thr = savgol(thrust, 7, 3) if len(thrust) > 7 else thrust
     prs = savgol(pressure, 7, 3) if len(pressure) > 7 else pressure
-    t_new = np.linspace(t[0], t[-1], 100)
-    thr_interp = interp1d(t, thr, kind="linear", fill_value="extrapolate")(t_new)
-    prs_interp = interp1d(t, prs, kind="linear", fill_value="extrapolate")(t_new)
-    
-    X_new = np.concatenate([thr_interp, prs_interp]).reshape(1, -1)
-    X_scaled = a["scaler_X"].transform(X_new)
-    y_pred_scaled = a["model"].predict(X_scaled, verbose=0)
-    dims = a["scaler_y"].inverse_transform(y_pred_scaled)[0]
-    dims = np.maximum(dims, 0.0)   # clamp: negative dimensions are physically impossible
+
+    t_new        = np.linspace(t[0], t[-1], 100)
+    thrust_100   = interp1d(t, thr, kind="linear", fill_value="extrapolate")(t_new)
+    pressure_100 = interp1d(t, prs, kind="linear", fill_value="extrapolate")(t_new)
+
+    # Scalars — must match training order exactly
+    total_impulse = float(_trapezoid(thrust, t))
+    isp           = isp_val if isp_val else 157.3015
+    max_thrust    = float(np.max(thrust))
+    peak_pressure = float(np.max(pressure))
+    burn_time     = float(t[-1] - t[0])
+    avg_thrust    = float(np.mean(thrust))
+    scalars = np.array([[total_impulse, isp, max_thrust,
+                         peak_pressure, burn_time, avg_thrust]])
+
+    t_sc = a["s_yt"].transform(thrust_100.reshape(1, -1))
+    p_sc = a["s_yp"].transform(pressure_100.reshape(1, -1))
+    s_sc = a["s_ys"].transform(scalars)
+
+    pred_sc  = a["model"].predict([t_sc, p_sc, s_sc], verbose=0)
+    raw_dims = a["s_X"].inverse_transform(pred_sc)[0]   # 5 dims: L, D, Core, Rod, Throat
+    raw_dims = np.maximum(raw_dims, 0.1)
+
+    # Insert Support_Diameter = 0.0 at index 4 (between Rod and Throat)
+    # Then append Exit_Diameter = Throat × ratio
+    throat_dia = raw_dims[-1]                            # Throat is last of the 5
+    exit_dia   = throat_dia * _ROD_EXIT_THROAT_RATIO
+    # Final order: L, D, Core, Rod, Support(0), Throat, Exit
+    dims = np.concatenate([raw_dims[:4], [0.0], raw_dims[4:], [exit_dia]])
     return dims
 
 def _rev_star(t, thrust, pressure, isp_val):
