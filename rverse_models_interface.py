@@ -975,165 +975,161 @@ print("SUCCESS")
 
 """# X Grain Interface"""
 
-import pandas as pd
+# ══════════════════════════════════════════════════════
+# X Grain Inverse — Standalone Inference
+# ══════════════════════════════════════════════════════
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.interpolate import interp1d
-from scipy.signal import savgol_filter
-import tensorflow as tf
 import joblib
-import warnings
-
-# Ignore version warnings
-warnings.filterwarnings('ignore')
-
-# 1. Load the model and scalers
-MODEL_PATH = "M:\\Graduation Project\\Team B\\Code_project\\test models\\Reverse Models\\X Models\\best_X_model_fixed.keras"
-inverse_model = tf.keras.models.load_model(MODEL_PATH, compile=False,safe_mode=False)
-
-s_X = joblib.load("M:\\Graduation Project\\Team B\\Code_project\\test models\\Reverse Models\\X Models\\scaler_X_inverse.pkl") # Scaler for input features (X)
-s_y = joblib.load("M:\\Graduation Project\\Team B\\Code_project\\test models\\Reverse Models\\X Models\\scaler_y_inverse.pkl") # Scaler for output dimensions (y)
-
-DIMENSION_NAMES = ['Length', 'Diameter', 'Slot_Length', 'Slot_Width', 'Throat_Diameter', 'Exit_Diameter']
-
-# 2. Directly ask for the file path or URL textually
-print("="*60)
-file_input = input("🔗 Enter Excel/CSV file URL or local path: ").strip('"\\') # Corrected: Trim quotes and backslashes
-print("="*60)
-
-if file_input:
-    try:
-        # Read file based on extension
-        if file_input.endswith(('.xlsx', '.xls')):
-            df = pd.read_excel(file_input)
-        else:
-            df = pd.read_csv(file_input)
-
-        print("✅ File loaded successfully.")
-
-        # Clean and process data
-        df.columns = df.columns.str.strip()
-
-        REQUIRED_COLS = ['Time (s)', 'Thrust (N)', 'Pressure (MPa)']
-
-        if not all(col in df.columns for col in REQUIRED_COLS):
-            print(f"❌ Error: The file must contain columns: {REQUIRED_COLS}")
-            print(f"Columns found in your file: {list(df.columns)}")
-        else:
-            # NUM_POINTS is defined in cell SnUAvFsmyp1n
-            num_points_for_interp = 100 # Using 100 points as derived from NUM_POINTS in other cells
-
-            df = df.dropna(subset=REQUIRED_COLS).sort_values('Time (s)')
-            t = df['Time (s)'].values
-            thrust = df['Thrust (N)'].values
-            pressure = df['Pressure (MPa)'].values
-
-            # Smoothing for both Thrust and Pressure
-            thrust_smooth = savgol_filter(thrust, window_length=7, polyorder=3)
-            pressure_smooth = savgol_filter(pressure, window_length=7, polyorder=3)
-
-            # Interpolation to 100 points for each
-            t_new = np.linspace(t[0], t[-1], num_points_for_interp)
-            thrust_interp = interp1d(t, thrust_smooth, kind='linear', fill_value='extrapolate')(t_new)
-            pressure_interp = interp1d(t, pressure_smooth, kind='linear', fill_value='extrapolate')(t_new)
-
-            # 🚀 Concatenate Thrust and Pressure to make 200 features total
-            X_input = np.concatenate([thrust_interp, pressure_interp]).reshape(1, -1)
-
-            # Predict
-            X_scaled = s_X.transform(X_input)
-            y_pred_scaled = inverse_model.predict(X_scaled, verbose=0)
-            y_pred = s_y.inverse_transform(y_pred_scaled)[0]
-
-            # Print dimensions
-            print("\n" + "-" * 50)
-            print("🎯 Predicted Engineering Dimensions:")
-            print("-" * 50)
-            for i, name in enumerate(DIMENSION_NAMES):
-                if i < len(y_pred):
-                    print(f"  ➜ {name:<20}: {y_pred[i]:.4f}")
-            print("-" * 50)
-
-            # Plot both curves
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 4))
-
-            # Plot Thrust
-            ax1.plot(t, thrust, 'r.', label='Original Thrust', alpha=0.4)
-            ax1.plot(t_new, thrust_interp, 'b-', label='Processed Thrust (100 points)', linewidth=2)
-            ax1.set_title("Thrust Curve")
-            ax1.set_xlabel("Time (s)")
-            ax1.set_ylabel("Thrust (N)")
-            ax1.grid(True, linestyle='--', alpha=0.6)
-            ax1.legend()
-
-            # Plot Pressure
-            ax2.plot(t, pressure, 'g.', label='Original Pressure', alpha=0.4)
-            ax2.plot(t_new, pressure_interp, 'm-', label='Processed Pressure (100 points)', linewidth=2)
-            ax2.set_title("Pressure Curve")
-            ax2.set_xlabel("Time (s)")
-            ax2.set_ylabel("Pressure (MPa)")
-            ax2.grid(True, linestyle='--', alpha=0.6)
-            ax2.legend()
-
-            plt.tight_layout()
-            plt.show()
-
-    except FileNotFoundError:
-        print(f"❌ Error: The file '{file_input}' was not found. Please ensure the path is correct and the file exists in the Colab environment or is a valid URL.")
-    except Exception as e:
-        print(f"❌ Error processing file: {e}")
-else:
-    print("⚠️ No input provided.")
-
-import zipfile
-import json
-import shutil
-import tempfile
 import os
+from scipy.signal import savgol_filter
+from scipy.interpolate import interp1d
+import tensorflow as tf
 
-src_model = r"M:\\Graduation Project\\Team B\\Code_project\\test models\\Reverse Models\\X Models\\best_X_model.keras"
-dst_model = r"M:\\Graduation Project\\Team B\\Code_project\\test models\\Reverse Models\\X Models\\best_X_model_fixed.keras"
+# ─────────────────────────────────────────────
+# 1. مسارات الملفات (عدّلها حسب مكانك)
+# ─────────────────────────────────────────────
+MODEL_PATH = 'M:\\Graduation Project\\Team B\\Code_project\\Deployments\\Reverse Models\\X Models\\x_grain_inverse_model.keras'
+SCALER_X   = 'M:\\Graduation Project\\Team B\\Code_project\\Deployments\\Reverse Models\\X Models\\x_inv_scaler_dims.pkl'
+SCALER_YT  = 'M:\\Graduation Project\\Team B\\Code_project\\Deployments\\Reverse Models\\X Models\\x_inv_scaler_thrust.pkl'
+SCALER_YP  = 'M:\\Graduation Project\\Team B\\Code_project\\Deployments\\Reverse Models\\X Models\\x_inv_scaler_pressure.pkl'
+SCALER_YS  = 'M:\\Graduation Project\\Team B\\Code_project\\Deployments\\Reverse Models\\X Models\\x_inv_scaler_scalars.pkl'
 
-tmp_dir = tempfile.mkdtemp()
+# ─────────────────────────────────────────────
+# 2. ثوابت (من نتيجة CELL 4)
+# ─────────────────────────────────────────────
+ISP_DEFAULT       = 175.1104    # ← متوسط ISP من الداتا
+EXIT_THROAT_RATIO = 1.5      # ← من نتيجة CELL 3
+FIXED_RATIO       = True     # ← True لو Std ≈ 0
 
-# فك الملف
-with zipfile.ZipFile(src_model, 'r') as z:
-    z.extractall(tmp_dir)
+DIM_NAMES = ['Length', 'Diameter', 'Slot_Length',
+             'Slot_Width', 'Throat_Diameter']
 
-config_path = os.path.join(tmp_dir, "config.json")
+# ─────────────────────────────────────────────
+# 3. تحميل الموديل والـ Scalers
+# ─────────────────────────────────────────────
+print("Loading model and scalers...")
+inverse_model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+s_X  = joblib.load(SCALER_X)
+s_yt = joblib.load(SCALER_YT)
+s_yp = joblib.load(SCALER_YP)
+s_ys = joblib.load(SCALER_YS)
+print("✅ Ready\n")
 
-# تحميل config
-with open(config_path, "r", encoding="utf-8") as f:
-    config = json.load(f)
+# ─────────────────────────────────────────────
+# 4. دالة التوقع
+# ─────────────────────────────────────────────
+def predict_dimensions_from_file(file_path, isp=ISP_DEFAULT):
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
 
-# حذف quantization_config من أي مكان
-def remove_quantization(obj):
-    if isinstance(obj, dict):
-        obj.pop("quantization_config", None)
-        for v in obj.values():
-            remove_quantization(v)
-    elif isinstance(obj, list):
-        for item in obj:
-            remove_quantization(item)
+    # ── قراءة الملف ──
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext in ('.xlsx', '.xls'):
+        df = pd.read_excel(file_path)
+    else:
+        df = pd.read_csv(file_path, sep=None, engine='python',
+                         encoding='latin1', on_bad_lines='skip')
 
-remove_quantization(config)
+    # ── Smart column detection ──
+    col_map = {}
+    for col in df.columns:
+        c = str(col).lower().replace(' ','').replace('_','').replace('(','').replace(')','')
+        if   'time'     in c: col_map['time']     = col
+        elif 'thrust'   in c: col_map['thrust']   = col
+        elif 'pressure' in c: col_map['pressure'] = col
 
-# حفظ config المعدل
-with open(config_path, "w", encoding="utf-8") as f:
-    json.dump(config, f)
+    if not all(k in col_map for k in ['time', 'thrust', 'pressure']):
+        raise ValueError(f"Columns not found. Available: {list(df.columns)}")
 
-# إعادة ضغط الملف
-with zipfile.ZipFile(dst_model, "w", zipfile.ZIP_DEFLATED) as z:
-    for root, dirs, files in os.walk(tmp_dir):
-        for file in files:
-            full_path = os.path.join(root, file)
-            arcname = os.path.relpath(full_path, tmp_dir)
-            z.write(full_path, arcname)
+    df = df.sort_values(col_map['time']).dropna(
+        subset=[col_map['time'], col_map['thrust'], col_map['pressure']]
+    )
 
-shutil.rmtree(tmp_dir)
+    t        = df[col_map['time']].values.astype(float)
+    thrust   = df[col_map['thrust']].values.astype(float)
+    pressure = df[col_map['pressure']].values.astype(float)
 
-print("Done!")
-print(dst_model)
+    # ── Preprocessing ──
+    if len(thrust) > 7:
+        thrust   = savgol_filter(thrust,   window_length=7, polyorder=3)
+        pressure = savgol_filter(pressure, window_length=7, polyorder=3)
+
+    x_new        = np.linspace(t[0], t[-1], 100)
+    thrust_100   = interp1d(t, thrust,   kind='linear', fill_value='extrapolate')(x_new)
+    pressure_100 = interp1d(t, pressure, kind='linear', fill_value='extrapolate')(x_new)
+
+    # ── Scalars محسوبة تلقائياً ──
+    # ترتيب: ['Total Impulse (Ns)', 'ISP (s)', 'Max Thrust (N)',
+    #          'Peak Pressure (MPa)', 'Burn Time (s)', 'Avg Thrust (N)']
+    total_impulse = float(np.trapezoid(thrust, t))
+    max_thrust    = float(thrust.max())
+    peak_pressure = float(pressure.max())
+    burn_time     = float(t[-1] - t[0])
+    avg_thrust    = float(thrust.mean())
+
+    scalars = np.array([[total_impulse, isp, max_thrust,
+                         peak_pressure, burn_time, avg_thrust]])
+
+    # ── Scale ──
+    t_sc = s_yt.transform(thrust_100.reshape(1, -1))
+    p_sc = s_yp.transform(pressure_100.reshape(1, -1))
+    s_sc = s_ys.transform(scalars)
+
+    # ── Predict ──
+    pred_sc   = inverse_model.predict([t_sc, p_sc, s_sc], verbose=0)
+    pred_dims = s_X.inverse_transform(pred_sc)[0]
+    pred_dims = np.maximum(pred_dims, 0.1)
+
+    # ── إضافة Exit لو ثابت ──
+    if FIXED_RATIO:
+        exit_dia  = pred_dims[-1] * EXIT_THROAT_RATIO
+        pred_dims = np.append(pred_dims, exit_dia)
+        names_out = DIM_NAMES + ['Exit_Diameter']
+    else:
+        names_out = DIM_NAMES
+
+    # ── طباعة النتائج ──
+    print("\n" + "="*50)
+    # print(f"  📂  {os.path.basename(file_path)}")
+    print(f"  🔩  Predicted X Grain Dimensions")
+    # print(f"  ⏱   Burn Time  : {burn_time:.3f} s")
+    # print(f"  🚀  Max Thrust : {max_thrust:.2f} N")
+    print(f"  ℹ️   ISP (fixed): {isp} s")
+    print("="*50)
+    for name, val in zip(names_out, pred_dims):
+        note = f"  ← ({EXIT_THROAT_RATIO:.2f} × Throat)" \
+               if name == 'Exit_Diameter' else ""
+        print(f"  {name:<20}: {val:.4f} cm{note}")
+    print("="*50)
+
+    # ── رسم ──
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+    axes[0].plot(x_new, thrust_100,   color='red',  lw=2)
+    axes[0].set_title('Input Thrust Profile')
+    axes[0].set_xlabel('Time (s)'); axes[0].set_ylabel('Thrust (N)')
+    axes[0].grid(True, alpha=0.3)
+
+    axes[1].plot(x_new, pressure_100, color='blue', lw=2)
+    axes[1].set_title('Input Pressure Profile')
+    axes[1].set_xlabel('Time (s)'); axes[1].set_ylabel('Pressure (MPa)')
+    axes[1].grid(True, alpha=0.3)
+
+    plt.suptitle(f'X Grain — {os.path.basename(file_path)}',
+                 fontsize=12, fontweight='bold')
+    plt.tight_layout()
+    plt.show()
+
+    return dict(zip(names_out, pred_dims))
+
+
+# ─────────────────────────────────────────────
+# 5. تشغيل
+# ─────────────────────────────────────────────
+results = predict_dimensions_from_file(
+    'file_path_here.xlsx'  # ضع مسار الملف هنا
+)
 
 """# Star Grain Interface"""
 

@@ -31,7 +31,7 @@ REVERSE_DEFAULT_ISP = {
     "Moon":          178.0197433,
     "Road and Tube": 157.3015,
     "Star":          170.0,
-    "X":             None,           # X model concatenates raw curves only
+    "X":             175.1104,
 }
 
 def _rev_bates(t, thrust, pressure, isp_val):
@@ -242,21 +242,42 @@ def _rev_star(t, thrust, pressure, isp_val):
     dims = np.maximum(dims, 0.1)
     return dims
 
+# EXIT_THROAT_RATIO used by the X model to derive Exit from Throat
+_X_EXIT_THROAT_RATIO = 1.5
+
 def _rev_x(t, thrust, pressure, isp_val):
     a = load_reverse_assets("X")
-    savgol = _get_savgol()
+    savgol   = _get_savgol()
     interp1d = _get_interp1d()
     thr = savgol(thrust, 7, 3) if len(thrust) > 7 else thrust
     prs = savgol(pressure, 7, 3) if len(pressure) > 7 else pressure
-    t_new = np.linspace(t[0], t[-1], 100)
-    thr_interp = interp1d(t, thr, kind="linear", fill_value="extrapolate")(t_new)
-    prs_interp = interp1d(t, prs, kind="linear", fill_value="extrapolate")(t_new)
-    
-    X_input = np.concatenate([thr_interp, prs_interp]).reshape(1, -1)
-    X_scaled = a["s_X"].transform(X_input)
-    y_pred_scaled = a["model"].predict(X_scaled, verbose=0)
-    dims = a["s_yt"].inverse_transform(y_pred_scaled)[0]
-    dims = np.maximum(dims, 0.0)   # clamp: negative dimensions are physically impossible
+
+    t_new        = np.linspace(t[0], t[-1], 100)
+    thrust_100   = interp1d(t, thr, kind="linear", fill_value="extrapolate")(t_new)
+    pressure_100 = interp1d(t, prs, kind="linear", fill_value="extrapolate")(t_new)
+
+    # Scalars — must match training order exactly
+    total_impulse = float(_trapezoid(thrust, t))
+    isp           = isp_val if isp_val else 175.1104
+    max_thrust    = float(np.max(thrust))
+    peak_pressure = float(np.max(pressure))
+    burn_time     = float(t[-1] - t[0])
+    avg_thrust    = float(np.mean(thrust))
+    scalars = np.array([[total_impulse, isp, max_thrust,
+                         peak_pressure, burn_time, avg_thrust]])
+
+    t_sc = a["s_yt"].transform(thrust_100.reshape(1, -1))
+    p_sc = a["s_yp"].transform(pressure_100.reshape(1, -1))
+    s_sc = a["s_ys"].transform(scalars)
+
+    pred_sc   = a["model"].predict([t_sc, p_sc, s_sc], verbose=0)
+    pred_dims = a["s_X"].inverse_transform(pred_sc)[0]
+    pred_dims = np.maximum(pred_dims, 0.1)
+
+    # Exit diameter is derived from throat diameter (last of the 5 predicted dims)
+    throat_dia = pred_dims[-1]
+    exit_dia   = throat_dia * _X_EXIT_THROAT_RATIO
+    dims = np.append(pred_dims, exit_dia)
     return dims
 
 REV_DISPATCH = {
